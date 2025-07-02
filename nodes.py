@@ -7,7 +7,7 @@ class WanRadialAttention:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "model": ("WANVIDEOMODEL",),
+                "model": ("MODEL",),
                 "width": ("INT", {"min": 16, "step": 16}),
                 "height": ("INT", {"min": 16, "step": 16}),
                 "length": ("INT", {"min": 1, "step": 1}),
@@ -16,9 +16,9 @@ class WanRadialAttention:
                 "vace_trim_latent": ("INT", {"default": 0, "min": 0}),
             }}
 
-    RETURN_TYPES = ("WANVIDEOMODEL",)
+    RETURN_TYPES = ("MODEL",)
     FUNCTION = "run"
-    CATEGORY = "vace-radial"
+    CATEGORY = "RadialAttention"
     DESCRIPTION = "Wan/VACE Radial Attention Patcher"
 
     def run(self, model, width, height, length, vace_trim_latent=0):
