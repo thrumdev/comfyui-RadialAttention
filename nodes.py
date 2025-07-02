@@ -29,15 +29,17 @@ class WanRadialAttention:
         video_token_num = tokens_per_frame * num_frames
         mask_map = MaskMap(video_token_num, num_frames, vace_trim_latent)
 
+        diffusion_model = model.model.diffusion_model
+
         # 1. Override attention processor for WAN blocks.
-        for block in model.model.blocks:
+        for block in diffusion_model.blocks:
             block.self_attn.radial_attn = RadialAttention()
             block.self_attn.mask_map = mask_map
             block.self_attn.forward = types.MethodType(radial_attn_forward, block.self_attn)
 
         # 2. Override attention processor for VACE blocks (if any).
-        if hasattr(model.mode, "vace_blocks"):
-            for block in model.model.vace_blocks:
+        if hasattr(diffusion_model, "vace_blocks"):
+            for block in diffusion_model.vace_blocks:
                 block.self_attn.radial_attn = RadialAttention()
                 block.self_attn.mask_map = mask_map
                 block.self_attn.forward = types.MethodType(radial_attn_forward, block.self_attn)
