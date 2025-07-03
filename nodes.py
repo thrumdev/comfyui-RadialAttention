@@ -66,7 +66,7 @@ def radial_attn_forward(self, x, freqs):
     q, k = apply_rope(q, k, freqs)
 
     x = self.radial_attn(q, k, v, mask_map=self.mask_map)
-    
+    x = x.view(b, s, n * d)  # Reshape back to [B, L, C]
     x = self.o(x)
     return x
 
