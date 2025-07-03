@@ -189,44 +189,44 @@ class RadialAttention:
     ):
         """
         Perform radial attention with the given query, key, value tensors and optional mask map.
+        Now supports batch sizes > 1 by processing each batch independently and stacking results.
         """
         batch_size, orig_seqlen, num_head, hidden_dim = query.shape
 
-        if batch_size != 1:
-            raise NotImplementedError("Radial attention currently only supports batch size of 1.")
+        outputs = []
+        for b in range(batch_size):
+            q = query[b]
+            k = key[b]
+            v = value[b]
 
-        # Squeeze out batch dimension
-        query = query.squeeze(0)
-        key = key.squeeze(0)
-        value = value.squeeze(0)
+            q_p = pad_qkv(q, block_size=block_size)
+            k_p = pad_qkv(k, block_size=block_size)
+            v_p = pad_qkv(v, block_size=block_size)
 
-        query = pad_qkv(query, block_size=block_size)
-        key = pad_qkv(key, block_size=block_size)
-        value = pad_qkv(value, block_size=block_size)
-        
-        mask = mask_map.query_log_mask(query, sparsity_type, block_size=block_size, decay_factor=decay_factor, model_type=model_type) if mask_map else None
-        seqlen = query.shape[0]
-        workspace_buffer = torch.empty(128 * 1024 * 1024, device=query.device, dtype=torch.uint8)
-        bsr_wrapper = flashinfer.BlockSparseAttentionWrapper(
-            workspace_buffer,
-            backend="fa2",
-        )
-        
-        indptr = get_indptr_from_mask(mask, query)
-        indices = get_indices_from_mask(mask, query)
-        bsr_wrapper.plan(
-            indptr=indptr,
-            indices=indices,
-            M=seqlen,
-            N=seqlen,
-            R=block_size,
-            C=block_size,
-            num_qo_heads=num_head,
-            num_kv_heads=num_head,
-            head_dim=hidden_dim,
-        )
-        
-        o = bsr_wrapper.run(query, key, value)
-        del workspace_buffer
-        # Add batch dimension back before returning
-        return o.unsqueeze(0)[:, :orig_seqlen, :, :]
+            mask = mask_map.query_log_mask(q_p, sparsity_type, block_size=block_size, decay_factor=decay_factor, model_type=model_type) if mask_map else None
+            seqlen = q_p.shape[0]
+            workspace_buffer = torch.empty(128 * 1024 * 1024, device=q.device, dtype=torch.uint8)
+            bsr_wrapper = flashinfer.BlockSparseAttentionWrapper(
+                workspace_buffer,
+                backend="fa2",
+            )
+
+            indptr = get_indptr_from_mask(mask, q_p)
+            indices = get_indices_from_mask(mask, q_p)
+            bsr_wrapper.plan(
+                indptr=indptr,
+                indices=indices,
+                M=seqlen,
+                N=seqlen,
+                R=block_size,
+                C=block_size,
+                num_qo_heads=num_head,
+                num_kv_heads=num_head,
+                head_dim=hidden_dim,
+            )
+
+            o = bsr_wrapper.run(q_p, k_p, v_p)
+            del workspace_buffer
+            outputs.append(o[:orig_seqlen])
+        # Stack along batch dimension
+        return torch.stack(outputs, dim=0)
