@@ -59,14 +59,14 @@ def radial_attn_forward(self, x, freqs):
     def qkv_fn(x):
         q = self.norm_q(self.q(x)).view(b, s, n, d)
         k = self.norm_k(self.k(x)).view(b, s, n, d)
-        v = self.v(x).view(b, s, n * d)
+        v = self.v(x).view(b, s, n, d)
         return q, k, v
 
     q, k, v = qkv_fn(x)
     q, k = apply_rope(q, k, freqs)
 
     x = self.radial_attn(q, k, v, mask_map=self.mask_map)
-
+    
     x = self.o(x)
     return x
 
