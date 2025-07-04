@@ -99,6 +99,7 @@ class VisualizeAttention:
             "required": {
                 "stats_dict": ("STATSDICT",),
                 "name": ("STRING",),
+                "latent": ("LATENT",),
             }
         }
 
@@ -107,7 +108,7 @@ class VisualizeAttention:
     CATEGORY = "RadialAttention"
     DESCRIPTION = "Visualize attention stats for a given name from a stats dict. Returns two images: temporal and spatial."
 
-    def run(self, stats_dict, name):
+    def run(self, stats_dict, name, latent):
         img_temporal, img_spatial = visualize_attention_stats(stats_dict, name)
         # Convert PIL images to numpy arrays (H, W, C), then to torch tensors (1, H, W, C), float32, normalized to [0,1]
         arr_temporal = np.array(img_temporal).astype(np.float32) / 255.0

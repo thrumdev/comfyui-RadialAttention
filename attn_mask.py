@@ -320,12 +320,34 @@ def visualize_attention_stats(stats_dict, name):
     if name not in stats_dict:
         print(f"No stats found for {name}")
         return None, None
+    # Defensive: if no data, return blank images
+    def blank_img(title):
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.set_title(title)
+        ax.axis('off')
+        buf = io.BytesIO()
+        plt.tight_layout()
+        plt.savefig(buf, format='png')
+        plt.close(fig)
+        buf.seek(0)
+        img = Image.open(buf)
+        return img
+
+    # Defensive: handle empty datasets
+    if not stats_dict[name]['temporal_dataset'] or not stats_dict[name]['spatial_dataset']:
+        img_temporal = blank_img(f"No Data: Temporal ({name})")
+        img_spatial = blank_img(f"No Data: Spatial ({name})")
+        return img_temporal, img_spatial
+
     temporal_dataset = torch.cat(stats_dict[name]['temporal_dataset'], dim=0).numpy()  # [N, 3]
     spatial_dataset = torch.cat(stats_dict[name]['spatial_dataset'], dim=0).numpy()    # [N, 3]
 
     def plot_avg(dataset, xlabel, title):
         # dataset: [N, 3] (distance, attn_weight, flag)
+        if dataset.shape[0] == 0:
+            return blank_img(title)
         fig, ax = plt.subplots(figsize=(6, 4))
+        plotted = False
         for flag_val, label, color in zip([1.0, 0.0],
                                           ["Target in Interpolated Frames", "Target in Non-Interpolated Frames"],
                                           ["tab:blue", "tab:orange"]):
@@ -334,25 +356,28 @@ def visualize_attention_stats(stats_dict, name):
                 continue
             dists = dataset[mask, 0]
             attn = dataset[mask, 1]
-            # Compute average attention Weight for each unique distance
+            if dists.size == 0 or attn.size == 0:
+                continue
             unique_dists = np.unique(dists)
+            if unique_dists.size == 0:
+                continue
             avg_attn = [attn[dists == d].mean() for d in unique_dists]
-            # Avoid log(0) by clipping to a small positive value
             avg_attn = np.clip(avg_attn, 1e-8, None)
             ax.plot(unique_dists, avg_attn, label=label, color=color, marker='o')
+            plotted = True
         ax.set_xlabel(xlabel)
         ax.set_ylabel("Average Attention Weight (raw)")
         ax.set_title(title)
         ax.legend()
         ax.grid(True, which='both', axis='y')
-        ax.set_yscale('log')  # Set y-axis to logarithmic scale
+        ax.set_yscale('log')
         buf = io.BytesIO()
         plt.tight_layout()
         plt.savefig(buf, format='png')
         plt.close(fig)
         buf.seek(0)
         img = Image.open(buf)
-        return img
+        return img if plotted else blank_img(title)
 
     img_temporal = plot_avg(temporal_dataset, "Temporal Distance (Frames)", f"Avg Attention Weight vs Temporal Distance ({name})")
     img_spatial = plot_avg(spatial_dataset, "Spatial Distance (Tokens)", f"Avg Attention Weight vs Spatial Distance ({name})")
