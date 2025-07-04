@@ -255,7 +255,9 @@ class FullAttentionGatherStats:
             num_frames = mask_map.num_frames
         elif tokens_per_frame is None or num_frames is None:
             raise ValueError("tokens_per_frame and num_frames must be provided if mask_map is None or missing attributes.")
-        interp_frames = torch.tensor(list(self.interp_frames), device=query.device)
+        # Ensure interp_frames is a list of ints, not strings
+        interp_frames = [int(f) for f in self.interp_frames]
+        interp_frames = torch.tensor(interp_frames, device=query.device)
 
         # Always handle batch dimension
         if query.ndim == 3:
