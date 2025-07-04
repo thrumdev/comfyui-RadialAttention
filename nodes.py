@@ -1,6 +1,8 @@
 import types
+import numpy as np
+import torch
 from comfy.ldm.flux.math import apply_rope
-from .attn_mask import RadialAttention, MaskMap
+from .attn_mask import RadialAttention, MaskMap, FullAttentionGatherStats, visualize_attention_stats
 
 class WanRadialAttention:
     @classmethod
@@ -14,14 +16,27 @@ class WanRadialAttention:
             },
             "optional": {
                 "vace_trim_latent": ("INT", {"default": 0, "min": 0}),
+                "frame1": ("INT", ),
+                "frame2": ("INT", ),
+                "frame3": ("INT", ),
             }}
 
-    RETURN_TYPES = ("MODEL",)
+    RETURN_TYPES = ("MODEL", "STATSDICT")
     FUNCTION = "run"
     CATEGORY = "RadialAttention"
     DESCRIPTION = "Wan/VACE Radial Attention Patcher"
 
-    def run(self, model, width, height, length, vace_trim_latent=0):
+    def run(
+        self, 
+        model, 
+        width, 
+        height, 
+        length, 
+        vace_trim_latent=0,
+        frame1=None,
+        frame2=None,
+        frame3=None,
+    ):
         tokens_per_frame = (width // 16) * (height // 16)
 
         # First frame is always independent. All remaining frames are temporally compressed by 4.
@@ -31,20 +46,27 @@ class WanRadialAttention:
 
         diffusion_model = model.model.diffusion_model
 
+        frames = [frame1, frame2, frame3]
+        interp_frames = [f for f in frames if f is not None]
+
+        global_stats_dict = {}
+
         # 1. Override attention processor for WAN blocks.
         for block in diffusion_model.blocks:
-            block.self_attn.radial_attn = RadialAttention()
+            block.self_attn.radial_attn = FullAttentionGatherStats("block", interp_frames, global_stats_dict)
             block.self_attn.mask_map = mask_map
             block.self_attn.forward = types.MethodType(radial_attn_forward, block.self_attn)
 
         # 2. Override attention processor for VACE blocks (if any).
         if hasattr(diffusion_model, "vace_blocks"):
             for block in diffusion_model.vace_blocks:
-                block.self_attn.radial_attn = RadialAttention()
+                block.self_attn.radial_attn = FullAttentionGatherStats("vace_block", interp_frames, global_stats_dict)
                 block.self_attn.mask_map = mask_map
                 block.self_attn.forward = types.MethodType(radial_attn_forward, block.self_attn)
 
-        return (model,)
+        return (model, global_stats_dict)
+    
+
 
 # From WanSelfAttention, all else equal except for the radial attention
 def radial_attn_forward(self, x, freqs):
@@ -70,10 +92,41 @@ def radial_attn_forward(self, x, freqs):
     x = self.o(x)
     return x
 
+class VisualizeAttention:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "stats_dict": ("STATSDICT",),
+                "name": ("STRING",),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "IMAGE")
+    FUNCTION = "run"
+    CATEGORY = "RadialAttention"
+    DESCRIPTION = "Visualize attention stats for a given name from a stats dict. Returns two images: temporal and spatial."
+
+    def run(self, stats_dict, name):
+        img_temporal, img_spatial = visualize_attention_stats(stats_dict, name)
+        # Convert PIL images to numpy arrays (H, W, C), then to torch tensors (1, H, W, C), float32, normalized to [0,1]
+        arr_temporal = np.array(img_temporal).astype(np.float32) / 255.0
+        arr_spatial = np.array(img_spatial).astype(np.float32) / 255.0
+        # Ensure shape is (H, W, C)
+        if arr_temporal.ndim == 2:
+            arr_temporal = arr_temporal[..., None]
+        if arr_spatial.ndim == 2:
+            arr_spatial = arr_spatial[..., None]
+        tensor_temporal = torch.from_numpy(arr_temporal).unsqueeze(0)  # (1, H, W, C)
+        tensor_spatial = torch.from_numpy(arr_spatial).unsqueeze(0)    # (1, H, W, C)
+        return (tensor_temporal, tensor_spatial)
+
 NODE_CLASS_MAPPINGS = {
     "WanRadialAttention": WanRadialAttention,
+    "VisualizeAttention": VisualizeAttention,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanRadialAttention": "Wan Radial Attention Patcher",
+    "VisualizeAttention": "Visualize Attention Stats",
 }
